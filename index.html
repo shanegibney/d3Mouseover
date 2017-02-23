@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+
+<style type="text/css">
+    body {
+        font-family: avenir next, sans-serif;
+        font-size: 12px;
+    }
+
+    .zoom {
+        cursor: move;
+        fill: none;
+        pointer-events: all;
+    }
+
+    .axis {
+        stroke-width: 0.5px;
+        stroke: #888;
+        font: 10px avenir next, sans-serif;
+    }
+
+    .axis>path {
+        stroke: #888;
+    }
+</style>
+
+<body>
+    <div id="totalDistance">
+    </div>
+</body>
+
+<script src="https://d3js.org/d3.v4.min.js"></script>
+<script>
+    /* Adapted from: https://bl.ocks.org/mbostock/34f08d5e11952a80609169b7917d4172 */
+
+    var margin = {
+            top: 20,
+            right: 20,
+            bottom: 90,
+            left: 50
+        },
+        margin2 = {
+            top: 230,
+            right: 20,
+            bottom: 30,
+            left: 50
+        },
+        width = 960 - margin.left - margin.right,
+        height = 300 - margin.top - margin.bottom,
+        height2 = 300 - margin2.top - margin2.bottom;
+
+    var parseTime = d3.timeParse("%Y-%m-%d %H:%M");
+
+    var x = d3.scaleTime().range([0, width]),
+        x2 = d3.scaleTime().range([0, width]),
+        y = d3.scaleLinear().range([height, 0]),
+        y2 = d3.scaleLinear().range([height2, 0]),
+        dur = d3.scaleLinear().range([0, 12]);
+
+    var xAxis = d3.axisBottom(x).tickSize(0),
+        xAxis2 = d3.axisBottom(x2).tickSize(0),
+        yAxis = d3.axisLeft(y).tickSize(0);
+
+    var brush = d3.brushX()
+        .extent([
+            [0, 0],
+            [width, height2]
+        ])
+        .on("start brush end", brushed);
+
+    var zoom = d3.zoom()
+        .scaleExtent([1, Infinity])
+        .translateExtent([
+            [0, 0],
+            [width, height]
+        ])
+        .extent([
+            [0, 0],
+            [width, height]
+        ])
+        .on("zoom", zoomed);
+
+    var svg = d3.select("body").append("svg")
+        .attr("width", width + margin.left + margin.right)
+        .attr("height", height + margin.top + margin.bottom);
+
+    svg.append("defs").append("clipPath")
+        .attr("id", "clip")
+        .append("rect")
+        .attr("width", width)
+        .attr("height", height);
+
+    var focus = svg.append("g")
+        .attr("class", "focus")
+        .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+    var context = svg.append("g")
+        .attr("class", "context")
+        .attr("transform", "translate(" + margin2.left + "," + margin2.top + ")");
+
+    d3.json("dataDefault.json", function(error, data) {
+        if (error) throw error;
+
+        var parseTime = d3.timeParse("%Y-%m-%d %H:%M");
+        var mouseoverTime = d3.timeFormat("%a %e %b %Y %H:%M");
+        var minTime = d3.timeFormat("%b%e, %Y");
+        var parseDate = d3.timeParse("%b %Y");
+
+        data.forEach(function(d) {
+                d.mouseoverDisplay = parseTime(d.date);
+                d.date = parseTime(d.date);
+                d.end = parseTime(d.end);
+                d.duration = ((d.end - d.date) / (60 * 1000)); // session duration in minutes
+                d.distance = +d.distance;
+                d.intensityInverted = (1 / (d.distance / d.duration)); // inverse of intensity so that the light colour is for low intensity and dark colour is for high intensity
+                d.intensity = Math.round(d.distance / d.duration); // actually intensity, metres per minute.
+                d.course = d.course.toLowerCase();
+                return d;
+            },
+            function(error, data) {
+                if (error) throw error;
+            });
+
+        var total = 0;
+
+        data.forEach(function(d) {
+            total = d.distance + total;
+        });
+
+        var minDate = d3.min(data, function(d) {
+            return d.date;
+        });
+
+        total = String(total).replace(/(.)(?=(\d{3})+$)/g, '$1,') //place thousands comma in total distance string
+
+        var xMin = d3.min(data, function(d) {
+            return d.date;
+        });
+
+        var yMax = Math.max(20, d3.max(data, function(d) {
+            return d.distance;
+        }));
+
+        dur.domain([0, d3.max(data, function(d) {
+            return d.duration;
+        })]);
+
+        var colorScale = d3.scaleSequential(d3.interpolateInferno)
+            .domain([0, d3.max(data, function(d) {
+                return d.intensityInverted;
+            })]);
+
+        var totalDistance = d3.select("#totalDistance").append("p").text("Total distance: " + total + "m");
+
+        x.domain([xMin, new Date()]);
+        y.domain([0, yMax]);
+        x2.domain(x.domain());
+        y2.domain(y.domain());
+
+        // append scatter plot to main chart area
+        var messages = focus.append("g");
+        messages.attr("clip-path", "url(#clip)");
+        messages.selectAll("message")
+            .data(data)
+            .enter().append("rect")
+            .style("fill", function(d) {
+                return colorScale(d.intensityInverted);
+            })
+            .attr("class", "message")
+            .attr("x", function(d) {
+                return x(d.date);
+            })
+            .attr("y", function(d) {
+                return y(d.distance);
+            })
+            .attr("width", function(d) {
+                return dur(d.duration);
+            })
+            .attr("height", function(d) {
+                return height - y(d.distance);
+            })
+            // .on("mouseover", onit);
+            .on("mouseover", () => console.log("I am now on it for sure!"));
+
+        // function onit(d) {
+        //     console.log("I am on it now!")
+        // }
+
+        focus.append("g")
+            .attr("class", "axis x-axis")
+            .attr("transform", "translate(0," + height + ")")
+            .call(xAxis);
+
+        focus.append("g")
+            .attr("class", "axis axis--y")
+            .call(yAxis);
+
+        // Summary Stats
+        focus.append("text")
+            .attr("transform", "rotate(-90)")
+            .attr("y", 0 - margin.left)
+            .attr("x", 0 - (height / 2))
+            .attr("dy", "1em")
+            .style("text-anchor", "middle")
+            .text("Distance in meters");
+
+        // focus.append("text")
+        //     .attr("x", width - margin.right)
+        //     .attr("dy", "1em")
+        //     .attr("text-anchor", "end")
+        //     // .text("Messages: " + num_messages(data, x));
+        //     .text("Total distance: " + total + "m");
+
+        svg.append("text")
+            .attr("transform",
+                "translate(" + ((width + margin.right + margin.left) / 2) + " ," +
+                (height + margin.top + margin.bottom) + ")")
+            .style("text-anchor", "middle")
+            .text("Date");
+
+        svg.append("rect")
+            .attr("class", "zoom")
+            .attr("width", width)
+            .attr("height", height)
+            .attr("transform", "translate(" + margin.left + "," + margin.top + ")")
+            .call(zoom);
+
+        // append scatter plot to brush chart area
+        var messages = context.append("g");
+        messages.attr("clip-path", "url(#clip)");
+        messages.selectAll("message")
+            .data(data)
+            .enter().append("rect")
+            .style("fill", function(d) {
+                return colorScale(d.intensityInverted);
+            })
+            .attr("class", "message")
+            .attr("x", function(d) {
+                return x2(d.date);
+            })
+            .attr("y", function(d) {
+                return y2(d.distance);
+            })
+            .attr("width", function(d) {
+                return dur(d.duration);
+            })
+            .attr("height", function(d) {
+                return height2 - y2(d.distance);
+            });
+
+        context.append("g")
+            .attr("class", "axis x-axis")
+            .attr("transform", "translate(0," + height2 + ")")
+            .call(xAxis2);
+
+        context.append("g")
+            .attr("class", "brush")
+            .call(brush)
+            .call(brush.move, x.range());
+
+    });
+
+    //create brush function redraw scatterplot with selection
+    function brushed() {
+        if (d3.event.sourceEvent && d3.event.sourceEvent.type === "zoom") return; // ignore brush-by-zoom
+        var s = d3.event.selection || x2.range();
+        x.domain(s.map(x2.invert, x2));
+        focus.selectAll(".message")
+            .attr("x", function(d) {
+                return x(d.date);
+            })
+            .attr("y", function(d) {
+                return y(d.distance);
+            })
+            .attr("width", function(d) {
+                return dur(d.duration);
+            })
+            .attr("height", function(d) {
+                return height - y(d.distance);
+            });
+
+        focus.select(".x-axis").call(xAxis);
+        svg.select(".zoom").call(zoom.transform, d3.zoomIdentity
+            .scale(width / (s[1] - s[0]))
+            .translate(-s[0], 0));
+        var e = d3.event.selection;
+        var selectedMessages = focus.selectAll('.message').filter(function() {
+            var xValue = this.getAttribute('x');
+            return e[0] <= xValue && xValue <= e[1];
+        });
+        // console.log(selectedMessages.nodes().length);
+    }
+
+    function zoomed() {
+        if (d3.event.sourceEvent && d3.event.sourceEvent.type === "brush") return; // ignore zoom-by-brush
+        var t = d3.event.transform;
+        x.domain(t.rescaleX(x2).domain());
+        focus.selectAll(".message")
+            // .enter().append("rect")
+            // .style("fill", function(d) {
+            //     return colorScale(d.intensityInverted);
+            // })
+            // .attr("class", "message")
+            .attr("x", function(d) {
+                return x(d.date);
+            })
+            .attr("y", function(d) {
+                return y(d.distance);
+            })
+            .attr("width", function(d) {
+                return dur(d.duration);
+            })
+            .attr("height", function(d) {
+                return height - y(d.distance);
+            });
+
+        focus.select(".x-axis").call(xAxis);
+        context.select(".brush").call(brush.move, x.range().map(t.invertX, t));
+    }
+
+    function handleMouseOver(d) {
+        d3.select(this)
+            .style("fill", "lightBlue");
+        g.select('text')
+            .attr("x", 15)
+            .attr("y", 5)
+            .text("Session no. " + d.number)
+            .append('tspan')
+            .text("Date: " + mouseoverTime(d.mouseoverDisplay))
+            .attr("x", 15)
+            .attr("y", 30)
+            .append('tspan')
+            .text("Distance: " + d.distance + "m")
+            .attr("x", 15)
+            .attr("y", 50)
+            .append('tspan')
+            .text("Duration: " + d.duration + " mins")
+            .attr("x", 15)
+            .attr("y", 70)
+            .append('tspan')
+            .text("Intensity: " + d.intensity + " meters/mins")
+            .attr("x", 15)
+            .attr("y", 90)
+            .append('tspan')
+            .text("Pool: " + d.pool + "  (" + d.course + ")")
+            .attr("x", 15)
+            .attr("y", 110);
+        console.log("handleMouseOver function");
+    }
+
+    function handleMouseOut(d) {
+        d3.select(this)
+            .style("fill", function(d) {
+                return colorScale(d.intensityInverted);
+            });
+        g.select('text').text("Total distance since " + minTime(minDate) + ": " + total + "m");
+    }
+</script>
